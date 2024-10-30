@@ -3,11 +3,17 @@ import { subDays } from 'date-fns';
 
 export const db = new Dexie('GainzHub');
 
-db.version(1).stores({
-  workouts: '++id, user, date, type',
-  exercises: '++id, workoutId, name, timestamp',
-  sets: '++id, exerciseId, reps, weight'
-});
+db.version(2).stores({
+    workouts: '++id, user, date, type, comment',
+    exercises: '++id, workoutId, name, timestamp',
+    sets: '++id, exerciseId, reps, weight',
+    customExercises: '++id, type, name, user' // Nouvelle table
+  }).upgrade(tx => {
+    // Migration des données pour ajouter le champ commentaire
+    return tx.workouts.toCollection().modify(workout => {
+      if (!workout.comment) workout.comment = '';
+    });
+  });
 
 // Fonction utilitaire pour réinitialiser la base
 export const resetDatabase = async () => {
@@ -119,56 +125,71 @@ export const getTodayWorkout = async (user) => {
   }
 };
 
+// Modification de la fonction existante pour inclure le commentaire
 export const saveExercise = async (workoutData, exercise) => {
-  try {
-    console.log('Starting saveExercise:', { workoutData, exercise });
-    
-    // Vérifier si un workout existe déjà pour aujourd'hui
-    let workout = await getTodayWorkout(workoutData.user);
-    let workoutId;
-
-    if (!workout) {
-      // Créer un nouveau workout si aucun n'existe pour aujourd'hui
-      workoutId = await db.workouts.add({
-        user: workoutData.user,
-        date: new Date(),
-        type: workoutData.type
+    try {
+      console.log('Starting saveExercise:', { workoutData, exercise });
+      
+      let workout = await getTodayWorkout(workoutData.user);
+      let workoutId;
+  
+      if (!workout) {
+        workoutId = await db.workouts.add({
+          user: workoutData.user,
+          date: new Date(),
+          type: workoutData.type,
+          comment: workoutData.comment || ''
+        });
+        console.log('Created new workout:', workoutId);
+      } else {
+        workoutId = workout.id;
+        // Mise à jour du type et du commentaire si nécessaire
+        await db.workouts.update(workoutId, {
+          type: workoutData.type,
+          comment: workoutData.comment || workout.comment || ''
+        });
+        console.log('Updated existing workout:', workoutId);
+      }
+  
+      const exerciseId = await db.exercises.add({
+        workoutId,
+        name: exercise.name,
+        timestamp: new Date()
       });
-      console.log('Created new workout:', workoutId);
-    } else {
-      workoutId = workout.id;
-      console.log('Using existing workout:', workoutId);
+  
+      const setPromises = exercise.sets
+        .filter(set => set.reps && set.weight)
+        .map(set => 
+          db.sets.add({
+            exerciseId,
+            reps: parseInt(set.reps),
+            weight: parseFloat(set.weight)
+          })
+        );
+  
+      await Promise.all(setPromises);
+      console.log('Saved all sets');
+  
+      return exerciseId;
+    } catch (error) {
+      console.error('Error in saveExercise:', error);
+      throw error;
     }
-
-    // Sauvegarder l'exercice
-    const exerciseId = await db.exercises.add({
-      workoutId,
-      name: exercise.name,
-      timestamp: new Date()
-    });
-    console.log('Saved exercise:', exerciseId);
-
-    // Sauvegarder les séries
-    const setPromises = exercise.sets
-      .filter(set => set.reps && set.weight)
-      .map(set => 
-        db.sets.add({
-          exerciseId,
-          reps: parseInt(set.reps),
-          weight: parseFloat(set.weight)
-        })
-      );
-
-    await Promise.all(setPromises);
-    console.log('Saved all sets');
-
-    return exerciseId;
-  } catch (error) {
-    console.error('Error in saveExercise:', error);
-    throw error;
-  }
-};
-
+  };
+// Fonctions pour gérer les exercices personnalisés
+export const addCustomExercise = async (user, type, name) => {
+    await db.customExercises.add({ user, type, name });
+  };
+  
+  export const getCustomExercises = async (user, type) => {
+    return await db.customExercises
+      .where({ user, type })
+      .toArray();
+  };
+  
+  export const deleteCustomExercise = async (id) => {
+    await db.customExercises.delete(id);
+  };
 export const getWorkoutHistory = async (user) => {
   try {
     const workouts = await db.workouts

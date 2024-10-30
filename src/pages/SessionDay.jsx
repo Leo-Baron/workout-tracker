@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PlusIcon, ArrowLeftIcon, XMarkIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { useUser } from '../context/UserContext';
-import { saveExercise, getTodayWorkout } from '../db/workoutDB';
+import { saveExercise, getTodayWorkout, getCustomExercises, addCustomExercise } from '../db/workoutDB';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -19,28 +19,51 @@ export function SessionDay() {
   });
   const [todayWorkout, setTodayWorkout] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [comment, setComment] = useState('');
+  const [customExercises, setCustomExercises] = useState({ push: [], pull: [] });
+  const [showAddExercise, setShowAddExercise] = useState(false);
+  const [newExerciseName, setNewExerciseName] = useState('');
 
-  const exercisesList = {
+  const defaultExercises = {
     push: ['Développé couché', 'Développé incliné', 'Développé épaules', 'Extensions triceps'],
     pull: ['Tractions', 'Rowing', 'Curl biceps', 'Soulevé de terre']
   };
 
   useEffect(() => {
     loadTodayWorkout();
+    loadCustomExercises();
   }, [currentUser]);
+
+  const loadCustomExercises = async () => {
+    const pushExercises = await getCustomExercises(currentUser, 'push');
+    const pullExercises = await getCustomExercises(currentUser, 'pull');
+    setCustomExercises({
+      push: pushExercises.map(e => e.name),
+      pull: pullExercises.map(e => e.name)
+    });
+  };
 
   const loadTodayWorkout = async () => {
     const workout = await getTodayWorkout(currentUser);
     setTodayWorkout(workout);
     if (workout) {
       setWorkoutType(workout.type);
+      setComment(workout.comment || '');
+    }
+  };
+
+  const handleAddCustomExercise = async () => {
+    if (newExerciseName.trim()) {
+      await addCustomExercise(currentUser, workoutType, newExerciseName.trim());
+      await loadCustomExercises();
+      setNewExerciseName('');
+      setShowAddExercise(false);
     }
   };
 
   const handleSaveExercise = async () => {
     if (!currentExercise.name || currentExercise.sets.length === 0) return;
 
-    // Valider que tous les sets ont des valeurs
     const isValidExercise = currentExercise.sets.every(set => 
       set.reps && set.reps > 0 && set.weight && set.weight > 0
     );
@@ -53,24 +76,14 @@ export function SessionDay() {
     try {
       setIsSaving(true);
       
-      console.log('Saving exercise:', {
-        user: currentUser,
-        type: workoutType,
-        exercise: currentExercise
-      });
-
       await saveExercise({
         user: currentUser,
-        type: workoutType
+        type: workoutType,
+        comment: comment
       }, currentExercise);
 
-      // Force un petit délai pour être sûr que la sauvegarde est terminée
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Recharger la séance du jour
       await loadTodayWorkout();
 
-      // Réinitialiser le formulaire
       setCurrentExercise({
         name: '',
         sets: [{
@@ -79,15 +92,17 @@ export function SessionDay() {
         }]
       });
 
-      // Notification de succès
-      alert('Mis MUSCLES are getting bigga! 💪');
-
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
       alert('Erreur lors de la sauvegarde de l\'exercice');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const allExercises = {
+    push: [...defaultExercises.push, ...customExercises.push],
+    pull: [...defaultExercises.pull, ...customExercises.pull]
   };
 
   return (
@@ -106,88 +121,108 @@ export function SessionDay() {
         {format(new Date(), 'EEEE d MMMM yyyy', { locale: fr })}
       </div>
 
+      {/* Type de séance */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         {['push', 'pull'].map(type => (
           <button
             key={type}
             onClick={() => setWorkoutType(type)}
-            disabled={todayWorkout && todayWorkout.type !== type}
             className={`p-4 rounded-xl backdrop-blur-sm transition-all ${
               workoutType === type 
                 ? 'bg-primary text-white shadow-lg shadow-primary/25' 
                 : 'bg-gray-800/50 text-gray-300 hover:bg-gray-700/50'
-            } ${todayWorkout && todayWorkout.type !== type ? 'opacity-50 cursor-not-allowed' : ''}`}
+            }`}
           >
             {type.toUpperCase()}
           </button>
         ))}
       </div>
 
-      {/* Séance en cours avec nouveau design */}
+      {/* Commentaire de séance */}
+      <div className="mb-6">
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Commentaire de séance (optionnel)"
+          className="w-full p-3 rounded-lg bg-gray-800/50 border border-gray-700/50 text-gray-100 placeholder-gray-500"
+          rows="2"
+        />
+      </div>
+
+      {/* Séance en cours */}
       {todayWorkout && todayWorkout.exercises && todayWorkout.exercises.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-primary">Séance en cours</h2>
-            <span className="text-sm text-gray-400">
-              {todayWorkout.type.toUpperCase()}
-            </span>
-          </div>
-          
-          <div className="relative">
-            {/* Ligne verticale de progression */}
-            <div className="absolute left-3 top-4 bottom-4 w-0.5 bg-gray-700" />
-            
-            <div className="space-y-6">
-              {todayWorkout.exercises.map((exercise, idx) => (
-                <div 
-                  key={idx} 
-                  className="relative pl-8"
-                >
-                  {/* Point sur la ligne de progression */}
-                  <div className="absolute left-0 top-3 w-6 h-6 rounded-full bg-gray-800 border-2 border-primary flex items-center justify-center">
-                    <span className="text-xs font-bold text-primary">{idx + 1}</span>
-                  </div>
-                  
-                  {/* Carte de l'exercice */}
-                  <div className="bg-gray-800/80 backdrop-blur-sm p-4 rounded-xl border border-gray-700/50 
-                                shadow-lg shadow-black/20">
-                    <h3 className="text-lg font-semibold text-primary mb-3">{exercise.name}</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {exercise.sets.map((set, setIdx) => (
-                        <div 
-                          key={setIdx}
-                          className="bg-gray-900/50 p-2 rounded-lg flex items-center justify-between"
-                        >
-                          <span className="text-gray-500 text-sm">Série {setIdx + 1}</span>
-                          <span className="text-gray-300">
-                            <span className="text-primary font-medium">{set.reps}</span> × {set.weight}kg
-                          </span>
-                        </div>
-                      ))}
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold mb-3 text-gray-300">Séance en cours</h2>
+          <div className="bg-gray-800/30 rounded-xl p-4 space-y-4">
+            {todayWorkout.exercises.map((exercise, idx) => (
+              <div key={idx} className="bg-gray-800/50 p-3 rounded-lg">
+                <h3 className="font-medium text-primary mb-2">{exercise.name}</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {exercise.sets.map((set, setIdx) => (
+                    <div key={setIdx} className="text-sm text-gray-400">
+                      {set.reps} reps × {set.weight}kg
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Formulaire nouvel exercice */}
+      {/* Nouvel exercice */}
       <div className="bg-gray-800/50 p-4 rounded-xl backdrop-blur-sm border border-gray-700/50 mb-6">
-        <select 
-          className="w-full p-3 mb-3 rounded-lg bg-gray-700 text-gray-100 border-gray-600"
-          value={currentExercise.name}
-          onChange={(e) => setCurrentExercise({
-            ...currentExercise,
-            name: e.target.value
-          })}
-        >
-          <option value="">Choisir un exercice</option>
-          {exercisesList[workoutType].map(ex => (
-            <option key={ex} value={ex}>{ex}</option>
-          ))}
-        </select>
+        <div className="flex justify-between items-center mb-3">
+          <select 
+            className="flex-1 p-3 rounded-lg bg-gray-700 text-gray-100 border-gray-600 mr-2"
+            value={currentExercise.name}
+            onChange={(e) => setCurrentExercise({
+              ...currentExercise,
+              name: e.target.value
+            })}
+          >
+            <option value="">Choisir un exercice</option>
+            {allExercises[workoutType].map(ex => (
+              <option key={ex} value={ex}>{ex}</option>
+            ))}
+          </select>
+          
+          <button
+            onClick={() => setShowAddExercise(true)}
+            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
+          >
+            <PlusIcon className="h-5 w-5" />
+          </button>
+        </div>
+
+        {showAddExercise && (
+          <div className="mb-4 p-3 bg-gray-700/50 rounded-lg">
+            <input
+              type="text"
+              value={newExerciseName}
+              onChange={(e) => setNewExerciseName(e.target.value)}
+              placeholder="Nom du nouvel exercice"
+              className="w-full p-2 mb-2 rounded bg-gray-600 text-gray-100"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleAddCustomExercise}
+                className="flex-1 p-2 bg-primary rounded text-white"
+              >
+                Ajouter
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddExercise(false);
+                  setNewExerciseName('');
+                }}
+                className="p-2 bg-gray-600 rounded text-gray-300"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           {currentExercise.sets.map((set, setIndex) => (

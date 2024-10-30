@@ -1,9 +1,8 @@
-// src/pages/History.jsx
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ChatBubbleBottomCenterTextIcon } from '@heroicons/react/24/outline';
 import { getWorkoutHistory } from '../db/workoutDB';
 import { useUser } from '../context/UserContext';
 
@@ -33,7 +32,7 @@ export function History() {
         <h1 className="text-2xl font-bold text-gray-100">Historique</h1>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         {workouts.map((workout) => (
           <div 
             key={workout.id} 
@@ -48,26 +47,55 @@ export function History() {
               </span>
             </div>
 
+            {/* Affichage du commentaire s'il existe */}
+            {workout.comment && (
+              <div className="mb-4 p-3 bg-gray-700/30 rounded-lg flex items-start gap-2">
+                <ChatBubbleBottomCenterTextIcon className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                <p className="text-gray-300 text-sm">{workout.comment}</p>
+              </div>
+            )}
+
             {workout.exercises.map((exercise) => (
-              <div key={exercise.id} className="mb-3 last:mb-0">
-                <h3 className="text-gray-300 mb-2">{exercise.name}</h3>
+              <div key={exercise.id} className="mb-4 last:mb-0">
+                <h3 className="text-gray-300 font-medium mb-2">{exercise.name}</h3>
                 <div className="grid grid-cols-2 gap-2">
                   {exercise.sets.map((set, idx) => (
                     <div 
                       key={set.id} 
-                      className="bg-gray-700/50 p-2 rounded-lg text-sm"
+                      className="bg-gray-700/50 p-2 rounded-lg text-sm flex justify-between items-center"
                     >
-                      <span className="text-gray-400">Série {idx + 1}:</span>
-                      {' '}
-                      {set.reps} × {set.weight}kg
+                      <span className="text-gray-400">Série {idx + 1}</span>
+                      <span className="text-gray-200">
+                        {set.reps} × {set.weight}kg
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             ))}
+
+            {/* Calculer et afficher le volume total de la séance */}
+            <div className="mt-4 pt-3 border-t border-gray-700/50 flex justify-between items-center text-sm">
+              <span className="text-gray-400">Volume total</span>
+              <span className="text-primary font-medium">
+                {workout.exercises.reduce((total, exercise) => 
+                  total + exercise.sets.reduce((setTotal, set) => 
+                    setTotal + (set.reps * set.weight), 0
+                  ), 0
+                ).toLocaleString()} kg
+              </span>
+            </div>
           </div>
         ))}
+        
+        {workouts.length === 0 && (
+          <div className="text-center text-gray-400 py-8">
+            Aucune séance enregistrée
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+export default History;
